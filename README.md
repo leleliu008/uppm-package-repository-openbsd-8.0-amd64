@@ -1,0 +1,1 @@
+# uppm-package-repository-openbsd-8.0-amd64
