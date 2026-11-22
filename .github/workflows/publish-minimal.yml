@@ -1,0 +1,106 @@
+name: publish mininal
+
+on:
+  workflow_dispatch
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        pkg: [bash, base16, base64, bat, bsdtar, bc, bison, bzip2, b3sum, cmake, coreutils, curl, d2, darkhttpd, diffutils, dos2unix, doxygen, ed, elftool, file, figlet, flex, flock, findutils, fzf, gawk, getopt, gettext-tools, gh, gindent, git, glow, gm4, gmake, go-md2man, golang, gperf, grep, gsed, gtar, gzip, jq, lolcat, lzip, lz4, nasm, ninja, openssl, orcc, patchelf, patch, pkg-config, pkgconf, potrace, re2c, rsync, sassc, scdoc, swig, sqlite3, sysinfo, t1utils, tic, tree, trietool, uctags, unzip, uppm, xmlutils, xsltproc, xxd, xz, yasm, yq, zip, zstd, zoxide]
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - run: curl -LO https://raw.githubusercontent.com/leleliu008/ppkg/master/ppkg
+      - run: chmod a+x ppkg
+
+      - uses: cross-platform-actions/action@master
+        with:
+          operating_system: openbsd
+          version: '8.0'
+          shell: bash
+          run: |
+            run() {
+              printf "\033[0;35m==>\033[0m \033[0;32m%b\n\033[0m" "$*"
+              eval "$@"
+            }
+
+            run ./ppkg setup --syspm
+            run ./ppkg update
+            run ./ppkg install ${{ matrix.pkg }} --static
+            run ./ppkg bundle  ${{ matrix.pkg }} .tar.xz
+
+            PACKAGE_SUMMARY="$(./ppkg show ${{ matrix.pkg }} summary)"
+            PACKAGE_VERSION="$(./ppkg show ${{ matrix.pkg }} version)"
+            PACKAGE_WEB_URL="$(./ppkg show ${{ matrix.pkg }} web-url)"
+
+
+            SHA256SUM="$(/usr/local/bin/gsha256sum *.tar.xz)"
+
+            PACKAGE_BIN_FILENAME="${SHA256SUM##*' '}"
+            PACKAGE_BIN_SHA="${SHA256SUM%%' '*}"
+
+            PACKAGE_BIN_URL="https://github.com/${{ github.repository }}/releases/download/@TAGNAME@/$PACKAGE_BIN_FILENAME"
+
+            cat > ${{ matrix.pkg }}.yml <<EOF
+            summary: $PACKAGE_SUMMARY
+            webpage: $PACKAGE_WEB_URL
+            version: $PACKAGE_VERSION 
+            bin-url: $PACKAGE_BIN_URL 
+            bin-sha: $PACKAGE_BIN_SHA
+            EOF
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.pkg }}
+          path: |
+            ${{ matrix.pkg }}-*.tar.xz
+            ${{ matrix.pkg }}.yml
+
+
+  publish:
+    needs: build
+
+    runs-on: ubuntu-latest
+
+    env:
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: '*'
+          path: .
+          merge-multiple: true
+
+      - run: ls
+
+      - run: mv *.yml formula/
+
+      - name: create notes.md
+        run: |
+          cat > notes.md <<EOF
+          These packages are created by [ppkg](https://github.com/leleliu008/ppkg).
+
+          These packages are statically linked.
+
+          These packages are relocatable which means that you can install them to anywhere.
+          EOF
+
+      - id: version
+        run: printf 'VERSION=%s\n' "$(date +%Y.%m.%d)" >> "GITHUB_OUTPUT"
+
+      - run: sed -i 's|@TAGNAME@|${{ steps.version.outputs.VERSION }}|' formula/*.yml
+
+      - run: gh release create ${{ steps.version.outputs.VERSION }} *.tar.xz --title ${{ steps.version.outputs.VERSION }} --notes-file notes.md
+
+      - run: git config --global user.name  leleliu008
+      - run: git config --global user.email leleliu008@gmail.com
+
+      - run: git add formula
+      - run: git commit -m 'publish new version ${{ steps.version.outputs.VERSION }}'
+      - run: git push origin master
