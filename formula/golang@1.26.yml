@@ -1,0 +1,5 @@
+summary: Open source programming language to build simple/reliable/efficient software
+webpage: https://go.dev/
+bin-url: https://go.dev/dl/go1.26.11.openbsd-amd64.tar.gz
+bin-sha: c5dab5912ecf9360e43a8160716d820e8bc4b7c939aa25ef0f5ce363a5815093
+version: 1.26.11
